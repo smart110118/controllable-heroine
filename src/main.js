@@ -2,9 +2,14 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-/** Free VALID Asian female casual avatar (MIT via VALID / c-frame). */
-export const MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/c-frame/valid-avatars-glb@c539a28/avatars/Asian/Asian_F_1_Casual.glb';
+/** Free VALID Asian female casual — local first, then CDN mirrors (jsDelivr often blocked in CN). */
+export const MODEL_CANDIDATES = [
+  '/avatar.glb',
+  'https://fastly.jsdelivr.net/gh/c-frame/valid-avatars-glb@c539a28/avatars/Asian/Asian_F_1_Casual.glb',
+  'https://cdn.jsdelivr.net/gh/c-frame/valid-avatars-glb@c539a28/avatars/Asian/Asian_F_1_Casual.glb',
+  'https://raw.githubusercontent.com/c-frame/valid-avatars-glb/c539a28/avatars/Asian/Asian_F_1_Casual.glb',
+];
+export const MODEL_URL = MODEL_CANDIDATES[0];
 
 const canvas = document.getElementById('c');
 const statusEl = document.getElementById('status');
@@ -338,43 +343,55 @@ function setButtonsEnabled(enabled) {
 setButtonsEnabled(false);
 
 const loader = new GLTFLoader();
-loader.load(
-  MODEL_URL,
-  (gltf) => {
-    const root = gltf.scene;
-    root.traverse((obj) => {
-      if (obj.isMesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
+
+function onAvatarLoaded(gltf) {
+  const root = gltf.scene;
+  root.traverse((obj) => {
+    if (obj.isMesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(root);
+  root.position.y -= box.min.y;
+  scene.add(root);
+
+  mixer = new THREE.AnimationMixer(root);
+  const clips = buildClips(root);
+  for (const [name, clip] of Object.entries(clips)) {
+    actions[name] = mixer.clipAction(clip);
+  }
+
+  window.hero.act('idle');
+  setButtonsEnabled(true);
+  setStatus('Ready — try Wave / Peace / Sneeze ≈');
+}
+
+function loadAvatar(index = 0) {
+  if (index >= MODEL_CANDIDATES.length) {
+    setStatus('Failed to load avatar GLB. Put public/avatar.glb or check network.');
+    return;
+  }
+  const url = MODEL_CANDIDATES[index];
+  setStatus(`Loading avatar… (${index + 1}/${MODEL_CANDIDATES.length})`);
+  loader.load(
+    url,
+    onAvatarLoaded,
+    (ev) => {
+      if (ev.total) {
+        const pct = Math.round((100 * ev.loaded) / ev.total);
+        setStatus(`Loading avatar… ${pct}%`);
       }
-    });
+    },
+    (err) => {
+      console.warn('Avatar load failed:', url, err);
+      loadAvatar(index + 1);
+    },
+  );
+}
 
-    // Ground the avatar
-    const box = new THREE.Box3().setFromObject(root);
-    root.position.y -= box.min.y;
-    scene.add(root);
-
-    mixer = new THREE.AnimationMixer(root);
-    const clips = buildClips(root);
-    for (const [name, clip] of Object.entries(clips)) {
-      actions[name] = mixer.clipAction(clip);
-    }
-
-    window.hero.act('idle');
-    setButtonsEnabled(true);
-    setStatus('Ready — try Wave / Peace / Sneeze ≈');
-  },
-  (ev) => {
-    if (ev.total) {
-      const pct = Math.round((100 * ev.loaded) / ev.total);
-      setStatus(`Loading avatar… ${pct}%`);
-    }
-  },
-  (err) => {
-    console.error(err);
-    setStatus('Failed to load avatar GLB. Check network / CDN.');
-  },
-);
+loadAvatar();
 
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
